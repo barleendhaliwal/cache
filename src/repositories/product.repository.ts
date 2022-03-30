@@ -3,12 +3,11 @@ import {
   Count,
   DefaultCrudRepository,
   Options,
-  Where,
+  Where
 } from '@loopback/repository';
 import {ExptDataSource, RedisDataSource} from '../datasources';
 import {CacheRespositoryMixin} from '../mixins/cache.mixin';
 import {Product, ProductRelations} from '../models';
-import {CacheDbSourceName} from '../types';
 
 export class ProductRepository extends CacheRespositoryMixin<
   Product,
@@ -25,7 +24,7 @@ export class ProductRepository extends CacheRespositoryMixin<
   redisDataSource: RedisDataSource;
   constructor(
     @inject('datasources.expt') dataSource: ExptDataSource,
-    @inject(`datasources.${CacheDbSourceName}`)
+    @inject(`datasources.CacheDB`)
     public cacheDataSource: RedisDataSource,
   ) {
     super(Product, dataSource);

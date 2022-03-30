@@ -1,9 +1,8 @@
 import {inject, lifeCycleObserver, LifeCycleObserver} from '@loopback/core';
 import {juggler} from '@loopback/repository';
-import {CacheDbSourceName} from '../types';
 
 const config = {
-  name: CacheDbSourceName,
+  name: 'CacheDB',
   connector: 'kv-redis',
   url: '',
   host: 'localhost',
@@ -21,7 +20,7 @@ export class RedisDataSource
   extends juggler.DataSource
   implements LifeCycleObserver
 {
-  static dataSourceName = CacheDbSourceName;
+  static dataSourceName = 'CacheDB';
   static readonly defaultConfig = config;
 
   constructor(

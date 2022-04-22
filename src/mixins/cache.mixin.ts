@@ -36,9 +36,8 @@ export function CacheRespositoryMixin<
       if (result) {
         finalResult = result;
       } else {
-        const dbEntry = await super.findById(id, filter, options);
-        finalResult = dbEntry;
-        this.saveInCache(key, dbEntry);
+        finalResult = await super.findById(id, filter, options);
+        this.saveInCache(key, finalResult);
       }
       return finalResult as M;
     }
@@ -56,40 +55,40 @@ export function CacheRespositoryMixin<
       if (result) {
         finalResult = result;
       } else {
-        const dbEntry = await super.find(filter, options);
-        finalResult = dbEntry;
-        this.saveInCache(key, dbEntry);
+        finalResult = await super.find(filter, options);
+        this.saveInCache(key, finalResult);
       }
       return finalResult as M[];
     }
 
     async searchInCache(key: string) {
-      let result = undefined;
-      if (this.cacheDataSource.connector?.execute) {
-        try {
-          const res = await this.executeRedisCommand('GET', [key]);
-          if (res) {
-            result = JSON.parse(decoder.decode(res as ArrayBuffer));
-          }
-        } catch (err) {
-          throw new Error(`Unable to search in Cache : ${err}`);
+      let result;
+
+      try {
+        const res = await this.executeRedisCommand('GET', [key]);
+        if (res) {
+          result = JSON.parse(decoder.decode(res as ArrayBuffer));
         }
-        return result;
+      } catch (err) {
+        throw new Error(
+          `Unexpected error occured while searching in cache : ${err}`,
+        );
       }
+      return result;
     }
 
     saveInCache(key: string, value: AnyObject) {
-      if (this.cacheDataSource.connector?.execute) {
-        try {
-          this.executeRedisCommand('SET', [
-            key,
-            JSON.stringify(value),
-            `PX`,
-            cacheOptions.ttl ?? 60000,
-          ]);
-        } catch (err) {
-          throw new Error(`Unable to save in Cache : ${err}`);
-        }
+      try {
+        this.executeRedisCommand('SET', [
+          key,
+          JSON.stringify(value),
+          `PX`,
+          cacheOptions.ttl ?? 60000,
+        ]);
+      } catch (err) {
+        throw new Error(
+          `Unexpected error occured while saving in cache : ${err}`,
+        );
       }
     }
 
@@ -107,64 +106,31 @@ export function CacheRespositoryMixin<
       return key;
     }
 
-    //returns number of keys deleted
     async clearCache() {
       this.checkDataSource();
-      const result = await this.getMatchingKeys() as string[];
-      if (this.cacheDataSource.connector?.execute && result.length) {
-        const count = await this.executeRedisCommand('DEL', result);
-        return count;
-      } else {
-        return 0;
-      }
-    }
-
-    // returns all keys that match with prefix using SCAN command.
-    // need to write it like this because cursor is updated asynchronously. reference: https://stackoverflow.com/questions/43064719/javascript-asynchronous-method-in-while-loop
-    getMatchingKeys() {
-      return new Promise((resolve, reject) => {
-        this.scanAllKeys(resolve, reject);
-      });
-    }
-
-    //scans and returns all keys till cursor becomes zero
-    async scanAllKeys(
-      resolve: any,
-      reject: any,
-      cursor: number = 0,
-      keys: string[] = [],
-    ) {
-      const res: {cursor: number; keys: string[]} = await this.scanKeys(cursor);
-      cursor = res.cursor;
-      keys.push(...res.keys);
-      if (cursor === 0) {
-        resolve(keys);
-      } else {
-        await this.scanAllKeys(resolve, reject, cursor, keys);
-      }
-    }
-
-    async scanKeys(cursor: number): Promise<{cursor: number; keys: string[]}> {
+      const script = `
+      local cursor = 0
+      local dels = 0
+      repeat
+          local result = redis.call('SCAN', cursor, 'MATCH', ARGV[1], 'COUNT', '${
+            cacheOptions.scanCount ?? 50
+          }')
+          for _,key in ipairs(result[2]) do
+              redis.call('DEL', key)
+              dels = dels + 1
+          end
+          cursor = tonumber(result[1])
+      until cursor == 0
+      return dels`;
       try {
-        const res: any = await this.executeRedisCommand('SCAN', [
-          cursor,
-          'MATCH',
+        return await this.executeRedisCommand(`EVAL`, [
+          script,
+          0,
           `${cacheOptions.prefix}*`,
-          'COUNT',
-          cacheOptions.scanCount ?? 100,
         ]);
-        const keys: string[] = [];
-        res[1].forEach((key: Buffer) => {
-          keys.push(decoder.decode(key));
-        });
-        const result = {
-          cursor: parseInt(decoder.decode(res[0])),
-          keys,
-        };
-        return result;
       } catch (err) {
         throw new Error(
-          `Unable to get matching keys for clearing cache ${err}`,
+          `Unexpected error occured while executing script to empty cache : ${err}`,
         );
       }
     }
